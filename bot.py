@@ -1,38 +1,25 @@
-import asyncio
-import os
 from flask import Flask
-import discord
-from discord.ext import commands
+import os
+import random
+import requests
+import asyncio
 
 app = Flask(__name__)
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-roasts = ["{user} so mid 😂", "{user} rizz = 0 💀"]
-
-@bot.event
-async def on_ready():
-    print(f"🔥 {bot.user} LIVE!")
-    await bot.change_presence(activity=discord.Game("Daviccino Daddy 🔥"))
-
-@bot.event
-async def on_message(message):
-    if bot.user in message.mentions and not message.author.bot:
-        await message.reply("**/roast /ship /help**\nTag me anytime! 🔥")
-    
-    await bot.process_commands(message)
-
-@bot.command()
-async def roast(ctx, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-    roast_text = random.choice(roasts).format(user=member.mention)
-    await ctx.send(f"🔥 {roast_text}")
+roasts = ["Mid af 😂", "Rizz = 0 💀", "Cope harder"]
 
 @app.route("/")
 def home():
     return "Phantom Daviccino 🔥 ALIVE"
 
-bot.run(os.getenv("DISCORD_TOKEN"))
+@app.route("/roast")
+def roast():
+    return {"roast": random.choice(roasts)}
+
+@app.route("/ping")
+def ping():
+    return {"status": "alive"}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
