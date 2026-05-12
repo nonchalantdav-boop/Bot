@@ -333,7 +333,7 @@ async def rps(interaction: discord.Interaction, choice: str):
     await send_with_image(interaction, embed, "rps")
 
 # 👑 VIP COMMANDS
-@tree.command(name="say", description="Make bot say something (invisible)")
+@tree.command(name="say", description="Make bot say something (VIP only)")
 @app_commands.describe(message="Message")
 async def say(interaction: discord.Interaction, message: str):
     if not (interaction.user.id == ALMIGHTY_ID or await is_vip(interaction.user.id)):
@@ -342,4 +342,11 @@ async def say(interaction: discord.Interaction, message: str):
     await interaction.response.send_message("✅ Sent.", ephemeral=True)
 
 @tree.command(name="mimic", description="Mimic someone (VIP only)")
-
+@app_commands.describe(member="Who to mimic", message="What to say as them")
+async def mimic(interaction: discord.Interaction, member: discord.Member, message: str):
+    if not (interaction.user.id == ALMIGHTY_ID or await is_vip(interaction.user.id)):
+        return await interaction.response.send_message("❌ VIP / Almighty only!", ephemeral=True)
+    embed = discord.Embed(description=message, color=0x9B59B6)
+    embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+    await interaction.channel.send(embed=embed)
+    await interaction.response.send_message("✅ Done.", ephemeral=True)
