@@ -341,4 +341,5 @@ async def say(interaction: discord.Interaction, message: str):
     await interaction.channel.send(message)
     await interaction.response.send_message("✅ Sent.", ephemeral=True)
 
-@tree.command(name="mimic", description="Mimic someone (invisible
+@tree.command(name="mimic", description="Mimic someone (VIP only)")
+
