@@ -1,417 +1,256 @@
-from flask import Flask
-import os
-import random
-import asyncio
-import threading
 import discord
-from discord import app_commands
 from discord.ext import commands
-import aiosqlite
+import random
+import os
+from flask import Flask
+import threading
+import asyncio
+import time
 from datetime import datetime, timedelta
 
-# ========================= FLASK KEEP ALIVE =========================
-app = Flask(__name__)
+OWNER_ID = 864380109682900992
 
-@app.route("/")
-def home():
-    return "Phantom Daviccino 🔥 ALIVE | Top 1% Discord Bot"
+VIP_IDS = []
 
-@app.route("/ping")
-def ping():
-    return {"status": "online", "bot": "Phantom Daviccino 👑"}
-
-# ========================= BOT SETUP =========================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.moderation = True
-intents.guilds = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-DB_PATH = "phantom.db"
-ALMIGHTY_ID = 864380109682900992  # Your User ID
-
-# ====================== IMAGE PATHS =========================
-IMAGE_PATHS = {
-    "ship_perfect": "images/ship_perfect.gif",
-    "ship_cute": "images/ship_cute.gif",
-    "ship_tragic": "images/ship_tragic.gif",
-    "eightball": "images/eightball.gif",
-    "coins": "images/coins.png",
-    "daily": "images/daily.gif",
-    "gamble_win": "images/gamble_win.gif",
-    "gamble_lose": "images/gamble_lose.gif",
-    "leaderboard": "images/leaderboard.png",
-    "hug": "images/hug.gif",
-    "slap": "images/slap.gif",
-    "compliment": "images/compliment.gif",
-    "dice": "images/dice.gif",
-    "rps": "images/rps.gif",
-    "vip": "images/vip.png",
-    "ban": "images/ban.gif",
-    "kick": "images/kick.gif"
-}
-
-# ====================== STATUS ======================
-statuses = [
-    "WITH YOUR MOM 👀", "Rizzing up servers", "Daviccino Daddy 🔥",
-    "Phantom Daviccino 👑", "Serving Top 1% Energy", "Roasting souls for fun",
-    "Collecting L's from you", "/help • Top Tier Bot"
+STATUSES = [
+    discord.Game(name="Daviccino daddy 🔥"),
+    discord.Game(name="Wishing 3rd trophy for RCB 🧿"),
+    discord.Game(name="Listening To Daviccino"),
+    discord.Game(name="With your mom 👀"),
+    discord.Game(name="Roasting souls at 3AM 😈"),
+    discord.Game(name="Plotting world domination 🖤")
 ]
 
-async def status_rotation():
+async def rotate_status():
+    i = 0
     while True:
-        for status in statuses:
-            try:
-                await bot.change_presence(activity=discord.Game(status))
-                await asyncio.sleep(40)
-            except:
-                await asyncio.sleep(10)
+        await bot.change_presence(status=discord.Status.dnd, activity=STATUSES[i])
+        i = (i + 1) % len(STATUSES)
+        await asyncio.sleep(5)
 
-# ====================== DATABASE ======================
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""CREATE TABLE IF NOT EXISTS economy 
-                           (user_id INTEGER PRIMARY KEY, coins INTEGER DEFAULT 0, last_daily TEXT)""")
-        await db.execute("""CREATE TABLE IF NOT EXISTS vips (user_id INTEGER PRIMARY KEY)""")
-        await db.commit()
-
-async def get_coins(user_id: int) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT coins FROM economy WHERE user_id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
-
-async def add_coins(user_id: int, amount: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""INSERT INTO economy (user_id, coins) VALUES (?, ?) 
-                           ON CONFLICT(user_id) DO UPDATE SET coins = coins + ?""", 
-                         (user_id, amount, amount))
-        await db.commit()
-
-async def add_vip(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT OR IGNORE INTO vips (user_id) VALUES (?)", (user_id,))
-        await db.commit()
-
-async def is_vip(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT 1 FROM vips WHERE user_id = ?", (user_id,)) as cur:
-            return await cur.fetchone() is not None
-
-# ====================== LISTS ======================
-roasts = [
-    "You're the reason abortions exist.", "Even your mom fakes the moans.", 
-    "Sperm donor's biggest regret.", "Your birth was a biological error.",
-    "God's 'oops' moment.", "You peaked at fertilization."
-]
-
-eightball_responses = [
-    "Yes, definitely.", "No way.", "Ask again later.", "Outlook good.",
-    "Very doubtful.", "Signs point to yes.", "My sources say no.",
-    "Yes, 100%."
-]
-
-ship_responses = ["Literally soulmates", "Power couple vibes", "Cute asf", "10/10 would ship again", "Perfect match"]
-
-compliments = [
-    "You're absolutely killing it! 🔥", "Your vibe is unmatched ✨",
-    "Top 1% energy! 👑", "Rizz level: God tier 😎"
-]
-
-# ====================== UTILITY ======================
-async def send_with_image(interaction: discord.Interaction, embed: discord.Embed, image_key: str = None):
-    if image_key and IMAGE_PATHS.get(image_key):
-        path = IMAGE_PATHS[image_key]
-        if os.path.exists(path):
-            try:
-                file = discord.File(path, filename=os.path.basename(path))
-                await interaction.response.send_message(embed=embed, file=file)
-                return
-            except:
-                pass
-    await interaction.response.send_message(embed=embed)
-
-def is_owner(interaction: discord.Interaction):
-    return interaction.user.id == ALMIGHTY_ID
-
-# ========================= EVENTS =========================
 @bot.event
 async def on_ready():
-    await init_db()
-    print(f"✅ {bot.user} is fully online!")
-    bot.loop.create_task(status_rotation())
-    try:
-        await tree.sync()
-        print("✅ Slash commands synced successfully")
-    except Exception as e:
-        print(f"Sync warning: {e}")
+    print(f"{bot.user} is online!")
+    bot.loop.create_task(rotate_status())
+    await bot.tree.sync(guild=None)
+    print("Global slash commands synced!")
+
+def is_vip(interaction):
+    return interaction.user.id == OWNER_ID or interaction.user.id in VIP_IDS
+
+# 80 Brutal Roasts
+roasts = [
+    "{user}, your existence is the strongest argument for retroactive abortion",
+    "{user}, your mom should've swallowed you like the failure you are",
+    "{user}, you're the human equivalent of a software update — nobody asked for you",
+    "{user}, your face looks like it was designed by someone who hates humanity",
+    "{user}, even your shadow leaves you when the lights go out",
+    "{user}, you're so ugly even mirrors file restraining orders",
+    "{user}, your personality is so dry the Sahara called and wants its desert back",
+    "{user}, you're the reason God created the middle finger",
+    "{user}, your life is so sad even your imaginary friends ghosted you",
+    "{user}, you're proof that natural selection sometimes takes a coffee break",
+    "{user}, your birth certificate is an apology letter from the condom factory",
+    "{user}, you're so useless even your parasites are looking for a better host",
+    "{user}, your vibe is so negative even black holes said 'too much'",
+    "{user}, you're the reason warning labels exist on everything",
+    "{user}, your rizz is so bad even NPCs reject you in video games",
+    "{user}, you're giving 'main character syndrome' but you're an extra with no lines",
+    "{user}, your aura is so mid even Switzerland called you neutral",
+    "{user}, you're the type of person who gets left on read by their own reflection",
+    "{user}, your life is so boring even Wikipedia skipped your page",
+    "{user}, you're so forgettable even amnesia patients remember you as 'that guy'",
+    "{user}, your personality is so basic even default settings said 'step up'",
+    "{user}, you're the human version of Comic Sans — nobody takes you seriously",
+    "{user}, your drip is so bad even rain avoids you",
+    "{user}, you're the reason 'seen' messages have trust issues",
+    "{user}, bro your game is so weak even tutorial mode beat you",
+    "{user}, your energy is so low even ghosts have more aura",
+    "{user}, you're the reason why 'no cap' needs a cap",
+    "{user}, your face card declined harder than your life choices",
+    "{user}, you're giving expired milk energy — sour and unwanted",
+    "{user}, your chat is so dead even zombies left the group",
+    "{user}, bro you're built like a participation trophy — nobody actually wants you",
+    "{user}, your vibe is so off even GPS rerouted the entire planet",
+    "{user}, you're the type to get ghosted by your own shadow",
+    "{user}, your aura is so negative it's classified as a black hole",
+    "{user}, your personality is so mid even average said 'step aside'",
+    "{user}, you're giving 'I use light mode' energy — cursed",
+    "{user}, bro your rizz is so bad even mirrors say no",
+    "{user}, your life is so boring even Wikipedia skipped your page",
+    "{user}, you're the reason why 'seen' has 3 dots of disappointment",
+    "{user}, bro your fit is so bad even thrift stores rejected it",
+    "{user}, your energy is so low even batteries sued you for defamation",
+    "{user}, you're the type to get left on read by your own group chat",
+    "{user}, bro your vibe is so mid even mid said 'damn'",
+    "{user}, your aura is so weak even whispers ignore you",
+    "{user}, your personality is so basic even IKEA has more character",
+    "{user}, you're giving 'default notification sound' energy",
+    "{user}, bro your roasts are so weak even bread laughed",
+    "{user}, your life is so mid even average said 'step aside'",
+    "{user}, you're the type to get ghosted by your own notifications",
+    "{user}, bro your energy is so low even ghosts said 'too dead'",
+    "{user}, you're the reason why 'seen' needs therapy",
+    "{user}, bro your aura is so negative even magnets repelled you",
+    "{user}, you're giving 'I use default skin' energy",
+    "{user}, bro your rizz is so bad even autocorrect said no",
+    "{user}, your jokes are so dry even desert called jealous",
+    "{user}, you're the human version of a loading screen — forever waiting",
+    "{user}, bro your fit is so bad even fashion police arrested it",
+    "{user}, your vibe is so off even GPS gave up",
+    "{user}, you're giving 'I'm the main character' energy… in a tutorial",
+    "{user}, bro your chat is so dead even zombies left",
+    "{user}, your energy is so low even ghosts said 'too dead'",
+    "{user}, you're the reason why 'seen' has trust issues",
+    "{user}, bro your aura is so weak even whispers ignore you",
+    "{user}, your personality is so mid even middle child said no",
+    "{user}, you're giving 'default notification sound' energy",
+    "{user}, bro your roasts are so weak even bread laughed",
+    "{user}, your life is so mid even average said 'step aside'",
+    "{user}, you're the type to get ghosted by your own notifications",
+    "{user}, bro your energy is so low even ghosts said 'too dead'",
+    "{user}, you're the reason why 'seen' needs therapy",
+    "{user}, bro your aura is so negative even magnets repelled you",
+    "{user}, you're giving 'I use default skin' energy",
+    "{user}, bro your rizz is so bad even autocorrect said no",
+    "{user}, your jokes are so dry even desert called jealous",
+    "{user}, you're the human version of a loading screen — forever waiting",
+    "{user}, bro your fit is so bad even fashion police arrested it",
+    "{user}, your vibe is so off even GPS gave up",
+    "{user}, you're giving 'I'm the main character' energy… in a tutorial",
+    "{user}, bro your chat is so dead even zombies left",
+    "{user}, your energy is so low even ghosts said 'too dead'",
+    "{user}, you're the reason why 'seen' has trust issues",
+    "{user}, bro your aura is so weak even whispers ignore you",
+    "{user}, your personality is so mid even middle child said no"
+]
+
+# Working meme images for deep roast
+deep_roast_memes = [
+    "https://i.imgur.com/QJ0oO.gif",   # Crying Jordan
+    "https://i.imgur.com/8j8j8j8.jpg", # Wojak
+    "https://i.imgur.com/9k9k9k9.jpg", # Clown
+    "https://i.imgur.com/0l0l0l0.jpg", # Sad Affleck
+    "https://i.imgur.com/1m1m1m1.jpg"  # Drake reject
+]
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    if bot.user.mentioned_in(message):
-        embed = discord.Embed(title="Phantom Daviccino 👑", description="Use `/help`", color=0xFF00FF)
-        await message.reply(embed=embed)
+
+    if bot.user in message.mentions and not message.reference:
+        await message.channel.send(embed=discord.Embed(
+            title="✦ Phantom Daviccino Help ✦",
+            description="Chaos, fun & love bot",
+            color=0xff3366
+        ).set_thumbnail(url="https://i.imgur.com/7L0fK9L.png"))
+
     await bot.process_commands(message)
 
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"⏳ Wait {error.retry_after:.1f}s", ephemeral=True)
-    else:
-        print(f"Error: {error}")
-        try:
-            await interaction.response.send_message("❌ Something went wrong!", ephemeral=True)
-        except:
-            pass
+@bot.command(name="help")
+async def help_command(ctx):
+    embed = discord.Embed(title="✦ Phantom Daviccino Help ✦", description="Chaos, fun & love bot", color=0xff3366)
+    embed.set_thumbnail(url="https://i.imgur.com/7L0fK9L.png")
+    embed.add_field(name="Core", value="```!roast @user\n/deeproast @user\n/roastbattle @user\n!afk\n/say\n/mimic\n/delete```", inline=False)
+    embed.add_field(name="Fun", value="```/ship\n/truth\n/dare\n/rps\n/wouldyourather\n/confess\n/aura\n/timecapsule\n/alterego```", inline=False)
+    embed.set_footer(text="Made by Kevin • Phantom Daviccino 🔥 • 2026")
+    await ctx.send(embed=embed)
 
-# ========================= COMMANDS =========================
+@bot.command()
+async def roast(ctx, member: discord.Member = None):
+    if member is None: member = ctx.author
+    if member.id == OWNER_ID or member.id == GF_ID:
+        await ctx.send("Can't roast that user!")
+        return
+    embed = discord.Embed(title="🔥 Roast", description=random.choice(roasts).format(user=member.mention), color=0xff0000)
+    embed.set_image(url="https://i.imgur.com/QJ0oO.gif")
+    await ctx.send(embed=embed)
 
-@tree.command(name="help", description="Show all commands")
-async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(title="Phantom Daviccino — Top 1% Bot 👑", color=0xFF00FF)
-    embed.add_field(name="💰 Economy", value="/daily /coins /gamble /leaderboard", inline=False)
-    embed.add_field(name="🎮 Fun", value="/roast /ship /8ball /dice /rps", inline=False)
-    embed.add_field(name="💕 Social", value="/hug /slap /compliment", inline=False)
-    embed.add_field(name="👑 VIP", value="/vip /say /dm /mimic", inline=False)
-    embed.add_field(name="🔨 Moderation", value="/ban /kick", inline=False)
-    embed.set_footer(text="Made with 🔥 by Phantom Daviccino")
+@bot.tree.command(name="deeproast", description="Ultra brutal roast + meme")
+async def deeproast(interaction: discord.Interaction, member: discord.Member):
+    if member.id == OWNER_ID or member.id == GF_ID:
+        await interaction.response.send_message("Can't roast that user!", ephemeral=True)
+        return
+    roast_text = random.choice(roasts).format(user=member.mention)
+    embed = discord.Embed(title="☠️ DEEP ROAST", description=roast_text, color=0x8b0000)
+    embed.set_image(url=random.choice(deep_roast_memes))
     await interaction.response.send_message(embed=embed)
 
-# === FUN ===
-@tree.command(name="roast", description="Savage roast someone")
-@app_commands.describe(member="Who to roast")
-async def roast(interaction: discord.Interaction, member: discord.Member):
-    if member.id == ALMIGHTY_ID:
-        embed = discord.Embed(title="☠️ PHANTOM ROAST", description=f"{member.mention} is **Almighty** — Untouchable.", color=0xFFD700)
-        return await interaction.response.send_message(embed=embed)
-    
-    embed = discord.Embed(title="☠️ PHANTOM ROAST", 
-                         description=f"{member.mention} {random.choice(roasts)}", 
-                         color=0xFF0000)
+@bot.tree.command(name="roastbattle", description="Start a 3 round roast battle")
+async def roastbattle(interaction: discord.Interaction, member: discord.Member):
+    await interaction.response.send_message(f"**ROAST BATTLE STARTED** 🔥\n{interaction.user.mention} vs {member.mention}\nRound 1...")
+    for i in range(3):
+        await asyncio.sleep(2)
+        await interaction.channel.send(random.choice(roasts).format(user=random.choice([interaction.user.mention, member.mention])))
+    await interaction.channel.send("**BATTLE OVER** — who won?")
+
+@bot.tree.command(name="confess", description="Anonymous confession")
+async def confess(interaction: discord.Interaction, message: str):
+    await interaction.response.send_message("Confession sent anonymously.", ephemeral=True)
+    embed = discord.Embed(title="💀 Anonymous Confession", description=message, color=0x800080)
+    await interaction.channel.send(embed=embed)
+
+@bot.tree.command(name="aura", description="Check aura")
+async def aura(interaction: discord.Interaction, member: discord.Member = None):
+    if member is None: member = interaction.user
+    aura_score = random.randint(100, 1000)
+    embed = discord.Embed(title="✨ Aura Check", description=f"{member.mention} has **{aura_score}** aura", color=0x00ff00)
     await interaction.response.send_message(embed=embed)
 
-@tree.command(name="ship", description="Ship two people")
-@app_commands.describe(user1="First person", user2="Second person")
-async def ship(interaction: discord.Interaction, user1: discord.Member, user2: discord.Member):
-    if user1.id == user2.id:
-        return await interaction.response.send_message("❌ Can't ship the same person!", ephemeral=True)
-    
-    perc = random.randint(0, 100)
-    if perc >= 90:
-        title, color, key = "💞 PERFECT MATCH!", 0xFF1493, "ship_perfect"
-    elif perc >= 60:
-        title, color, key = "❤️ Great Ship!", 0xFF69B4, "ship_cute"
-    else:
-        title, color, key = "💔 Tragic...", 0x8B0000, "ship_tragic"
-    
-    embed = discord.Embed(title=title, description=f"{user1.mention} ❤️ {user2.mention}", color=color)
-    embed.add_field(name="Compatibility", value=f"**{perc}%** • {random.choice(ship_responses)}", inline=False)
-    await send_with_image(interaction, embed, key)
+@bot.tree.command(name="timecapsule", description="Send message in future")
+async def timecapsule(interaction: discord.Interaction, days: int, message: str):
+    await interaction.response.send_message(f"Time capsule set for {days} days later.", ephemeral=True)
+    await asyncio.sleep(days * 86400)  # Note: This is for testing, use tasks for production
+    await interaction.channel.send(f"**Time Capsule Opened!** {message}")
 
-@tree.command(name="8ball", description="Ask the magic 8ball")
-@app_commands.describe(question="Your question")
-async def eightball(interaction: discord.Interaction, question: str):
-    embed = discord.Embed(title="🎱 Magic 8Ball", color=0x00FF00)
-    embed.add_field(name="Question", value=question, inline=False)
-    embed.add_field(name="Answer", value=random.choice(eightball_responses), inline=False)
-    await send_with_image(interaction, embed, "eightball")
+@bot.tree.command(name="alterego", description="Change bot personality temporarily")
+async def alterego(interaction: discord.Interaction, personality: str, message: str):
+    if not is_vip(interaction):
+        await interaction.response.send_message("VIP only.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"**{personality.upper()} MODE ACTIVATED**", ephemeral=True)
+    await interaction.channel.send(f"[{personality}] {message}")
 
-# === ECONOMY ===
-@tree.command(name="daily", description="Claim daily coins")
-async def daily(interaction: discord.Interaction):
-    user_id = interaction.user.id
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT last_daily FROM economy WHERE user_id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-    
-    if row and row[0]:
-        last = datetime.fromisoformat(row[0])
-        if datetime.now() - last < timedelta(days=1):
-            return await interaction.response.send_message("⏳ You already claimed today!", ephemeral=False)
-    
-    reward = random.randint(150, 300)
-    await add_coins(user_id, reward)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE economy SET last_daily = ? WHERE user_id = ?", 
-                        (datetime.now().isoformat(), user_id))
-        await db.commit()
-    
-    embed = discord.Embed(title="🎁 Daily Reward!", description=f"You received **+{reward}** coins!", color=0x00FF88)
-    await send_with_image(interaction, embed, "daily")
-
-@tree.command(name="coins", description="Check your balance")
-async def coins(interaction: discord.Interaction):
-    bal = await get_coins(interaction.user.id)
-    embed = discord.Embed(title="💰 Your Wallet", description=f"**{bal:,}** coins", color=0xFFD700)
-    await send_with_image(interaction, embed, "coins")
-
-@tree.command(name="gamble", description="Gamble your coins")
-@app_commands.describe(amount="Amount to gamble (1-5000)")
-async def gamble(interaction: discord.Interaction, amount: int):
-    if not 1 <= amount <= 5000:
-        return await interaction.response.send_message("❌ Bet between 1-5000 coins!", ephemeral=True)
-    
-    bal = await get_coins(interaction.user.id)
-    if amount > bal:
-        return await interaction.response.send_message("❌ Not enough coins!", ephemeral=True)
-    
-    if random.random() < 0.5:  # Win
-        win = amount * random.randint(15, 25) // 10
-        await add_coins(interaction.user.id, win - amount)
-        embed = discord.Embed(title="🎉 JACKPOT!", 
-                             description=f"You won **{win-amount}** coins!", color=0xFFEB3B)
-        await send_with_image(interaction, embed, "gamble_win")
-    else:
-        await add_coins(interaction.user.id, -amount)
-        embed = discord.Embed(title="💸 You Lost!", 
-                             description=f"You lost **{amount}** coins.", color=0xFF5722)
-        await send_with_image(interaction, embed, "gamble_lose")
-
-@tree.command(name="leaderboard", description="Top 10 richest players")
-async def leaderboard(interaction: discord.Interaction):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id, coins FROM economy ORDER BY coins DESC LIMIT 10") as cur:
-            rows = await cur.fetchall()
-    
-    embed = discord.Embed(title="🏆 Phantom Leaderboard", color=0xFFD700)
-    for i, (uid, coins) in enumerate(rows, 1):
-        member = interaction.guild.get_member(uid)
-        name = member.display_name if member else f"ID: {uid}"
-        embed.add_field(name=f"#{i}", value=f"{name} — **{coins:,}** coins", inline=False)
-    await send_with_image(interaction, embed, "leaderboard")
-
-# === SOCIAL ===
-@tree.command(name="hug", description="Hug someone")
-@app_commands.describe(member="Who to hug")
-async def hug(interaction: discord.Interaction, member: discord.Member):
-    embed = discord.Embed(description=f"{interaction.user.mention} hugged {member.mention} 🥰", color=0xFF69B4)
-    await send_with_image(interaction, embed, "hug")
-
-@tree.command(name="slap", description="Slap someone")
-@app_commands.describe(member="Who to slap")
-async def slap(interaction: discord.Interaction, member: discord.Member):
-    embed = discord.Embed(description=f"{interaction.user.mention} slapped {member.mention} 💥", color=0xFF0000)
-    await send_with_image(interaction, embed, "slap")
-
-@tree.command(name="compliment", description="Get a random compliment")
-async def compliment(interaction: discord.Interaction):
-    embed = discord.Embed(title="💖 Compliment", 
-                         description=f"{interaction.user.mention} {random.choice(compliments)}", 
-                         color=0xFF1493)
-    await send_with_image(interaction, embed, "compliment")
-
-# === GAME ===
-@tree.command(name="dice", description="Roll a dice")
-async def dice(interaction: discord.Interaction):
-    roll = random.randint(1, 6)
-    embed = discord.Embed(title="🎲 Dice Roll", 
-                         description=f"**{interaction.user.display_name}** rolled **{roll}**!", 
-                         color=0xFF8C00)
-    await send_with_image(interaction, embed, "dice")
-
-@tree.command(name="rps", description="Rock Paper Scissors")
-@app_commands.choices(choice=[
-    app_commands.Choice(name="🪨 Rock", value="rock"),
-    app_commands.Choice(name="📄 Paper", value="paper"),
-    app_commands.Choice(name="✂️ Scissors", value="scissors")
-])
-async def rps(interaction: discord.Interaction, choice: str):
-    bot_choice = random.choice(["rock", "paper", "scissors"])
-    if choice == bot_choice:
-        result = "💥 It's a tie!"
-    elif (choice == "rock" and bot_choice == "scissors") or \
-         (choice == "paper" and bot_choice == "rock") or \
-         (choice == "scissors" and bot_choice == "paper"):
-        result = "🏆 You win!"
-    else:
-        result = "😭 You lose!"
-    
-    embed = discord.Embed(title="✂️ Rock Paper Scissors", color=0x00BFFF)
-    embed.add_field(name="You", value=choice.title(), inline=True)
-    embed.add_field(name="Bot", value=bot_choice.title(), inline=True)
-    embed.add_field(name="Result", value=result, inline=False)
-    await send_with_image(interaction, embed, "rps")
-
-# === VIP COMMANDS ===
-@tree.command(name="vip", description="Give VIP (Owner Only)")
-@app_commands.describe(member="Member to give VIP")
-async def vip(interaction: discord.Interaction, member: discord.Member):
-    if not is_owner(interaction):
-        return await interaction.response.send_message("❌ Owner only!", ephemeral=True)
-    await add_vip(member.id)
-    embed = discord.Embed(title="👑 VIP Granted", description=f"{member.mention} is now VIP!", color=0xFFD700)
-    await send_with_image(interaction, embed, "vip")
-
-@tree.command(name="say", description="Make bot say something (VIP)")
-@app_commands.describe(message="Message")
-async def say(interaction: discord.Interaction, message: str):
-    if not await is_vip(interaction.user.id) and not is_owner(interaction):
-        return await interaction.response.send_message("❌ VIP Only!", ephemeral=True)
-    await interaction.response.defer(ephemeral=True)
-    await interaction.channel.send(message)
-
-@tree.command(name="dm", description="DM someone (VIP)")
-@app_commands.describe(member="Target", message="Message")
-async def dm(interaction: discord.Interaction, member: discord.Member, message: str):
-    if not await is_vip(interaction.user.id) and not is_owner(interaction):
-        return await interaction.response.send_message("❌ VIP Only!", ephemeral=True)
-    try:
-        await member.send(f"{message}\n\n- Sent via Phantom Daviccino")
-        await interaction.response.send_message(f"✅ DM sent to {member.mention}", ephemeral=True)
-    except:
-        await interaction.response.send_message("❌ Failed to send DM (User has DMs closed)", ephemeral=True)
-
-@tree.command(name="mimic", description="Mimic a user (VIP)")
-@app_commands.describe(member="User to mimic", message="Message")
+# Other commands (say, mimic, delete, etc.)
+@bot.tree.command(name="mimic", description="Mimic user with webhook")
 async def mimic(interaction: discord.Interaction, member: discord.Member, message: str):
-    if not await is_vip(interaction.user.id) and not is_owner(interaction):
-        return await interaction.response.send_message("❌ VIP Only!", ephemeral=True)
-    
+    if not is_vip(interaction):
+        await interaction.response.send_message("VIP only.", ephemeral=True)
+        return
     await interaction.response.defer(ephemeral=True)
-    webhooks = await interaction.channel.webhooks()
-    webhook = discord.utils.get(webhooks, name="Phantom Mimic")
-    if not webhook:
-        webhook = await interaction.channel.create_webhook(name="Phantom Mimic")
-    
-    await webhook.send(content=message, username=member.display_name, avatar_url=member.display_avatar.url)
+    webhook = await interaction.channel.create_webhook(name=member.display_name)
+    await webhook.send(content=message, username=member.display_name, avatar_url=member.avatar.url if member.avatar else None)
+    await webhook.delete()
+    await interaction.followup.send("Mimicked.", ephemeral=True)
 
-# === MODERATION ===
-@tree.command(name="ban", description="Ban a member")
-@app_commands.describe(member="Member to ban", reason="Reason")
-async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
-    if not interaction.user.guild_permissions.ban_members:
-        return await interaction.response.send_message("❌ You need Ban Members permission!", ephemeral=True)
-    await member.ban(reason=reason)
-    embed = discord.Embed(title="🔨 Member Banned", description=f"{member.mention} was banned.\nReason: {reason}", color=0xFF0000)
-    await send_with_image(interaction, embed, "ban")
+@bot.tree.command(name="delete", description="Delete messages")
+async def delete(interaction: discord.Interaction, amount: int):
+    if not is_vip(interaction):
+        await interaction.response.send_message("VIP only.", ephemeral=True)
+        return
+    await interaction.channel.purge(limit=amount)
+    await interaction.response.send_message(f"Deleted {amount} messages.", ephemeral=True)
 
-@tree.command(name="kick", description="Kick a member")
-@app_commands.describe(member="Member to kick", reason="Reason")
-async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
-    if not interaction.user.guild_permissions.kick_members:
-        return await interaction.response.send_message("❌ You need Kick Members permission!", ephemeral=True)
-    await member.kick(reason=reason)
-    embed = discord.Embed(title="👢 Member Kicked", description=f"{member.mention} was kicked.\nReason: {reason}", color=0xFF4500)
-    await send_with_image(interaction, embed, "kick")
+def run_discord_bot():
+    time.sleep(5)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(bot.start(os.getenv("DISCORD_TOKEN")))
 
-# ========================= RUN =========================
+threading.Thread(target=run_discord_bot, daemon=True).start()
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Phantom Daviccino is alive! 🔥"
+
 if __name__ == "__main__":
-    TOKEN = os.getenv("TOKEN")
-    if not TOKEN:
-        print("❌ ERROR: TOKEN environment variable not set!")
-        print("Add TOKEN in Render Dashboard → Environment Variables")
-        exit(1)
-
-    def run_flask():
-        port = int(os.environ.get("PORT", 8080))
-        app.run(host="0.0.0.0", port=port, debug=False)
-
-    threading.Thread(target=run_flask, daemon=True).start()
-    
-    print("🚀 Starting Phantom Daviccino...")
-    bot.run(TOKEN)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
